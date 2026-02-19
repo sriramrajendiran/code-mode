@@ -1,6 +1,6 @@
 {
   "name": "@utcp/code-mode-mcp",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Model Context Protocol (MCP) server for UTCP Code Mode - Execute TypeScript code with direct tool access",
   "type": "module",
   "main": "dist/index.js",
