@@ -108,37 +108,9 @@ function setupMcpTools() {
         title: "UTCP Code Mode Usage Guide",
         description: "Comprehensive guide on how to use the UTCP Code Mode MCP server for executing TypeScript code with tool access."
     }, async () => {
-        const currentDate = new Date().toISOString();
-        const currentDateReadable = new Date().toLocaleString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZoneName: 'short'
-        });
-
         const codeInstructions = `# UTCP Code Mode MCP Server Usage Guide
 
-**CURRENT DATE AND TIME:** ${currentDateReadable} (ISO: ${currentDate})
-
 You have access to a powerful UTCP Code Mode MCP server that allows you to execute TypeScript code with direct access to registered tools.
-
-## CRITICAL: Always Use Tools for Current Data
-
-**IMPORTANT:** Your training data has a knowledge cutoff date. The CURRENT date is ${currentDateReadable}. For ANY information that could change over time:
-- ✅ ALWAYS use the available tools to fetch current, real-time data
-- ❌ NEVER rely on your training data for facts, current events, prices, availability, statistics, or any time-sensitive information
-- ✅ Tools provide live data from APIs and services - they return what exists RIGHT NOW
-- ❌ Do not assume or guess based on what you know from your training
-
-**Examples of when you MUST use tools:**
-- Current weather, news, stock prices, cryptocurrency values
-- Product availability, pricing, inventory status
-- API responses, database queries, file contents
-- User data, account information, system status
-- Current date/time, recent events, latest versions
 
 ## Workflow: Always Follow This Pattern
 
@@ -152,7 +124,7 @@ ${CodeModeUtcpClient.AGENT_PROMPT_TEMPLATE}
 
 - in the call_tool_chain code, return the result that you want to see, your code will be wrapped in an async function and executed
 
-Remember: The power of this system comes from combining multiple tools in sophisticated TypeScript code execution workflows. Tools give you CURRENT data - use them!`;
+Remember: The power of this system comes from combining multiple tools in sophisticated TypeScript code execution workflows.`;
 
         return {
             messages: [{
@@ -196,7 +168,7 @@ Remember: The power of this system comes from combining multiple tools in sophis
 
     mcp.registerTool("search_tools", {
         title: "Search for UTCP Tools",
-        description: `Searches for relevant tools based on a task description. CURRENT DATE: ${new Date().toISOString().split('T')[0]}. These tools fetch CURRENT, real-time data from live APIs and services - always prefer using tools over relying on training data for time-sensitive information.`,
+        description: "Searches for relevant tools based on a task description.",
         inputSchema: {
             task_description: z.string().describe("A natural language description of the task."),
             limit: z.number().optional().default(10),
@@ -218,7 +190,7 @@ Remember: The power of this system comes from combining multiple tools in sophis
 
     mcp.registerTool("list_tools", {
         title: "List All Registered UTCP Tools",
-        description: `Returns a list of all tool names currently registered. CURRENT DATE: ${new Date().toISOString().split('T')[0]}.`,
+        description: "Returns a list of all tool names currently registered.",
         inputSchema: {},
     }, async () => {
         const client = await initializeUtcpClient();
@@ -253,7 +225,7 @@ Remember: The power of this system comes from combining multiple tools in sophis
 
     mcp.registerTool("tools_info", {
         title: "Get Tools Information with TypeScript Interface",
-        description: `Get complete information about a specified list of tools, including TypeScript interface definition. CURRENT DATE: ${new Date().toISOString().split('T')[0]}.`,
+        description: "Get complete information about a specified list of tools, including TypeScript interface definition.",
         inputSchema: {
             tool_names: z.array(z.string()).describe("Names of the tools to get complete information for."),
         },
@@ -288,9 +260,9 @@ Remember: The power of this system comes from combining multiple tools in sophis
     // Code Mode specific tools
     mcp.registerTool("call_tool_chain", {
         title: "Execute TypeScript Code with Tool Access",
-        description: `Execute TypeScript code with direct access to all registered tools as hierarchical functions (e.g., manual.tool()). CURRENT DATE: ${new Date().toISOString().split('T')[0]}. IMPORTANT: Tools return CURRENT, real-time data from live sources. Always use tools to get up-to-date information rather than relying on LLM training data.`,
+        description: "Execute TypeScript code with direct access to all registered tools as hierarchical functions (e.g., manual.tool()).",
         inputSchema: {
-            code: z.string().describe("TypeScript code to execute with access to all registered tools. Use tools to fetch current data."),
+            code: z.string().describe("TypeScript code to execute with access to all registered tools."),
             timeout: z.number().optional().default(30000).describe("Optional timeout in milliseconds (default: 30000)."),
             max_output_size: z.number().optional().default(200000).describe("Optional maximum output size in characters (default: 200000)."),
         },

@@ -133,16 +133,7 @@ With this MCP bridge, all your UTCP tools become available in Claude Desktop and
 
 ## 💻 Code Mode Example
 
-The main feature of this bridge is the ability to execute TypeScript code with direct access to all registered tools.
-
-### Important: Tools Provide Real-Time Data
-
-**CRITICAL:** All tools fetch current, real-time data from live APIs and services. When the LLM writes code:
-- ✅ Tools return data that exists RIGHT NOW (current weather, prices, availability, etc.)
-- ✅ Always use tools for time-sensitive information
-- ❌ Never rely on LLM training data for facts that could change over time
-
-Example of using tools for current data:
+The main feature of this bridge is the ability to execute TypeScript code with direct access to all registered tools:
 
 ```typescript
 // Example using call_tool_chain
