@@ -30,7 +30,11 @@ Add this configuration to your MCP client (Claude Desktop, etc.):
 
 ## 🔧 Configuration
 
-Create a `.utcp_config.json` file to configure your tools and services:
+Create a `.utcp_config.json` file to configure your tools and services.
+
+### Local Configuration File
+
+Create a `.utcp_config.json` file locally:
 
 ```json
 {
@@ -64,6 +68,31 @@ Create a `.utcp_config.json` file to configure your tools and services:
     }
 }
 ```
+
+### Remote Configuration File
+
+You can also use a remote JSON file hosted on any HTTP/HTTPS URL:
+
+```json
+{
+  "mcpServers": {
+    "utcp-codemode": {
+      "command": "npx",
+      "args": ["@utcp/code-mode-mcp"],
+      "env": {
+        "UTCP_CONFIG_FILE": "https://example.com/my-utcp-config.json"
+      }
+    }
+  }
+}
+```
+
+The MCP bridge will automatically detect if `UTCP_CONFIG_FILE` is a URL (starts with `http://` or `https://`) and fetch the configuration remotely. This is useful for:
+- **Shared team configurations** - Host a single config that multiple team members can use
+- **Dynamic configurations** - Update tools without distributing new config files
+- **Centralized management** - Manage multiple MCP instances from a central location
+
+**Security Note:** Only use remote URLs from trusted sources, as the configuration can execute code and access your environment variables.
 
 ### Enabling CLI Support
 

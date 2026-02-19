@@ -317,6 +317,37 @@ Remember: The power of this system comes from combining multiple tools in sophis
 
 }
 
+/**
+ * Checks if a string is a valid HTTP/HTTPS URL
+ */
+function isUrl(str: string): boolean {
+    try {
+        const url = new URL(str);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Fetches configuration from a remote URL
+ */
+async function fetchRemoteConfig(url: string): Promise<any> {
+    console.log(`Fetching remote config from: ${url}`);
+    const response = await fetch(url);
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch remote config: ${response.status} ${response.statusText}`);
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+        console.warn(`Warning: Remote config URL returned content-type '${contentType}', expected 'application/json'`);
+    }
+
+    return await response.json();
+}
+
 async function initializeUtcpClient(): Promise<CodeModeUtcpClient> {
     if (utcpClient) {
         return utcpClient;
@@ -325,25 +356,34 @@ async function initializeUtcpClient(): Promise<CodeModeUtcpClient> {
     // Look for config file: 1) Environment variable, 2) Current working directory, 3) Package directory
     const cwd = process.cwd();
     const packageDir = __dirname;
-    
+
     let configPath: string;
     let scriptDir: string;
-    
+    let isRemote = false;
+
     // Check if UTCP_CONFIG_FILE environment variable is set
     if (process.env.UTCP_CONFIG_FILE) {
-        configPath = path.resolve(process.env.UTCP_CONFIG_FILE);
-        scriptDir = path.dirname(configPath);
-        
-        try {
-            await fs.access(configPath);
-        } catch {
-            console.warn(`UTCP config file specified in UTCP_CONFIG_FILE not found: ${configPath}`);
+        configPath = process.env.UTCP_CONFIG_FILE;
+        isRemote = isUrl(configPath);
+
+        if (!isRemote) {
+            configPath = path.resolve(configPath);
+            scriptDir = path.dirname(configPath);
+
+            try {
+                await fs.access(configPath);
+            } catch {
+                console.warn(`UTCP config file specified in UTCP_CONFIG_FILE not found: ${configPath}`);
+            }
+        } else {
+            // For remote configs, use current working directory as script dir
+            scriptDir = cwd;
         }
     } else {
         // Fall back to current working directory first, then package directory
         configPath = path.resolve(cwd, '.utcp_config.json');
         scriptDir = cwd;
-        
+
         try {
             await fs.access(configPath);
         } catch {
@@ -354,11 +394,19 @@ async function initializeUtcpClient(): Promise<CodeModeUtcpClient> {
 
     let rawConfig: any = {};
     try {
-        const configFileContent = await fs.readFile(configPath, 'utf-8');
-        rawConfig = JSON.parse(configFileContent);
+        let configFileContent: string;
+
+        if (isRemote) {
+            // Fetch from remote URL
+            rawConfig = await fetchRemoteConfig(configPath);
+        } else {
+            // Read from local file
+            configFileContent = await fs.readFile(configPath, 'utf-8');
+            rawConfig = JSON.parse(configFileContent);
+        }
     } catch (e: any) {
         if (e.code !== 'ENOENT') {
-            console.warn(`Could not read or parse .utcp_config.json. Error: ${e.message}`);
+            console.warn(`Could not read or parse config file. Error: ${e.message}`);
         }
     }
 
