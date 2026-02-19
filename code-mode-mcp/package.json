@@ -1,7 +1,7 @@
 {
-  "name": "@utcp/code-mode-mcp",
+  "name": "@sriramrajendiran/code-mode-mcp",
   "version": "1.2.1",
-  "description": "Model Context Protocol (MCP) server for UTCP Code Mode - Execute TypeScript code with direct tool access",
+  "description": "Model Context Protocol (MCP) server for UTCP Code Mode - Execute TypeScript code with direct tool access (Fork with remote config support)",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -26,17 +26,18 @@
     "bridge",
     "tools",
     "ai",
-    "code-execution"
+    "code-execution",
+    "remote-config"
   ],
-  "author": "UTCP Team",
+  "author": "Sriram Rajendiran",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/universal-tool-calling-protocol/utcp-mcp.git"
+    "url": "https://github.com/sriramrajendiran/code-mode.git"
   },
-  "homepage": "https://github.com/universal-tool-calling-protocol/utcp-mcp#readme",
+  "homepage": "https://github.com/sriramrajendiran/code-mode#readme",
   "bugs": {
-    "url": "https://github.com/universal-tool-calling-protocol/utcp-mcp/issues"
+    "url": "https://github.com/sriramrajendiran/code-mode/issues"
   },
   "engines": {
     "node": ">=18.0.0"
