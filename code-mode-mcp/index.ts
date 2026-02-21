@@ -9,6 +9,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import path from "path";
 import { promises as fs } from "fs";
+import { spawn } from "child_process";
 import { parse as parseDotEnv } from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
@@ -43,6 +44,8 @@ console.warn = (...args: any[]) => { process.stderr.write(util.format(...args) +
 ensureCorePluginsInitialized();
 
 let utcpClient: CodeModeUtcpClient | null = null;
+let rawConfig: any = null;
+let scriptDir: string = '';
 
 async function main() {
     setupMcpTools();
@@ -100,6 +103,210 @@ async function findToolByName(client: CodeModeUtcpClient, name: string): Promise
     }
     
     return null;
+}
+
+// ---------------------------------------------------------------------------
+// Python interface generation helpers (mirrors python-library's logic in TS)
+// ---------------------------------------------------------------------------
+
+function mapJsonTypeToPython(jsonType: string): string {
+    const mapping: Record<string, string> = {
+        'string': 'str',
+        'number': 'float',
+        'integer': 'int',
+        'boolean': 'bool',
+        'null': 'None',
+        'object': 'Dict[str, Any]',
+        'array': 'List[Any]',
+    };
+    return mapping[jsonType] ?? 'Any';
+}
+
+function jsonSchemaToPythonTypeString(schema: any): string {
+    if (!schema || typeof schema !== 'object') return 'Any';
+
+    if (schema.enum && Array.isArray(schema.enum)) {
+        const literals = schema.enum.map((v: any) =>
+            typeof v === 'string' ? `"${v}"` : String(v)
+        ).join(', ');
+        return `Literal[${literals}]`;
+    }
+
+    const schemaType = schema.type;
+
+    if (schemaType === 'object') {
+        return 'Dict[str, Any]';
+    }
+
+    if (schemaType === 'array') {
+        const items = schema.items;
+        if (!items) return 'List[Any]';
+        if (Array.isArray(items)) {
+            return `List[${items.map((i: any) => jsonSchemaToPythonTypeString(i)).join(' | ')}]`;
+        }
+        return `List[${jsonSchemaToPythonTypeString(items)}]`;
+    }
+
+    if (typeof schemaType === 'string') {
+        return mapJsonTypeToPython(schemaType);
+    }
+
+    if (Array.isArray(schemaType)) {
+        return (schemaType as string[]).map(t => mapJsonTypeToPython(t)).join(' | ');
+    }
+
+    return 'Any';
+}
+
+function jsonSchemaToPythonTypedDictContent(schema: any): string {
+    if (!schema || typeof schema !== 'object' || schema.type !== 'object') {
+        return '    pass  # Any type allowed';
+    }
+
+    const properties: Record<string, any> = schema.properties || {};
+    const required: string[] = schema.required || [];
+    const lines: string[] = [];
+
+    if (Object.keys(properties).length === 0) {
+        return '    pass  # No specific properties defined';
+    }
+
+    for (const [propName, propSchema] of Object.entries(properties)) {
+        const isRequired = required.includes(propName);
+        const description: string = (propSchema as any)?.description ?? '';
+        const pyType = jsonSchemaToPythonTypeString(propSchema);
+
+        if (description) {
+            lines.push(`    # ${description.replace(/\n/g, ' ')}`);
+        }
+        lines.push(isRequired ? `    ${propName}: ${pyType}` : `    ${propName}: Optional[${pyType}]`);
+    }
+
+    return lines.length > 0 ? lines.join('\n') : '    pass  # No properties';
+}
+
+function toolToPythonInterface(tool: any): string {
+    let interfaceContent: string;
+    let accessPattern: string;
+
+    if (tool.name.includes('.')) {
+        const [manualName, ...toolParts] = tool.name.split('.');
+        const sanitizedManualName = sanitizeIdentifier(manualName);
+        const toolName = toolParts.map((part: string) => sanitizeIdentifier(part)).join('_');
+        accessPattern = `${sanitizedManualName}.${toolName}`;
+
+        const inputContent = jsonSchemaToPythonTypedDictContent(tool.inputs);
+        const outputContent = jsonSchemaToPythonTypedDictContent(tool.outputs);
+
+        interfaceContent = `# Namespace: ${sanitizedManualName}
+class ${toolName}Input(TypedDict):
+${inputContent}
+
+class ${toolName}Output(TypedDict):
+${outputContent}`;
+    } else {
+        const sanitizedToolName = sanitizeIdentifier(tool.name);
+        accessPattern = sanitizedToolName;
+
+        const inputContent = jsonSchemaToPythonTypedDictContent(tool.inputs);
+        const outputContent = jsonSchemaToPythonTypedDictContent(tool.outputs);
+
+        interfaceContent = `class ${sanitizedToolName}Input(TypedDict):
+${inputContent}
+
+class ${sanitizedToolName}Output(TypedDict):
+${outputContent}`;
+    }
+
+    const description = (tool.description ?? '').replace(/\n/g, ' ');
+    const tags = (tool.tags ?? []).join(', ');
+
+    return `${interfaceContent}
+
+# ${description}
+# Tags: ${tags}
+# Access as: ${accessPattern}(args)
+`;
+}
+
+// ---------------------------------------------------------------------------
+// Python subprocess helpers
+// ---------------------------------------------------------------------------
+
+interface PythonRunnerRequest {
+    code: string;
+    config: any;
+    root_dir: string;
+    timeout: number;
+}
+
+interface PythonRunnerResponse {
+    success: boolean;
+    result: any;
+    logs: string[];
+    error?: string;
+}
+
+function getPythonExecutable(): string {
+    return process.env.PYTHON_EXECUTABLE ?? 'python3';
+}
+
+function getPythonRunnerPath(): string {
+    // python_runner.py sits at the package root, one level above dist/
+    return path.join(__dirname, '..', 'python_runner.py');
+}
+
+async function spawnPythonRunner(request: PythonRunnerRequest): Promise<PythonRunnerResponse> {
+    const pythonExe = getPythonExecutable();
+    const runnerPath = getPythonRunnerPath();
+
+    return new Promise<PythonRunnerResponse>((resolve, reject) => {
+        const proc = spawn(pythonExe, [runnerPath], {
+            env: process.env,
+        });
+
+        let stdout = '';
+        let stderr = '';
+
+        proc.stdout.on('data', (data: Buffer) => {
+            stdout += data.toString();
+        });
+
+        proc.stderr.on('data', (data: Buffer) => {
+            process.stderr.write(data);
+            stderr += data.toString();
+        });
+
+        proc.on('close', (code: number | null) => {
+            if (code !== 0) {
+                return reject(new Error(
+                    `Python runner exited with code ${code}. stderr: ${stderr.slice(0, 500)}`
+                ));
+            }
+            try {
+                resolve(JSON.parse(stdout) as PythonRunnerResponse);
+            } catch {
+                reject(new Error(
+                    `Failed to parse Python runner output. stdout: ${stdout.slice(0, 500)}`
+                ));
+            }
+        });
+
+        proc.on('error', (err: any) => {
+            if (err.code === 'ENOENT') {
+                reject(new Error(
+                    `Python executable not found: '${pythonExe}'. ` +
+                    `Install Python 3.10+ and the 'code-mode' PyPI package (pip install code-mode), ` +
+                    `or set the PYTHON_EXECUTABLE environment variable.`
+                ));
+            } else {
+                reject(new Error(`Failed to start Python runner: ${err.message}`));
+            }
+        });
+
+        proc.stdin.write(JSON.stringify(request));
+        proc.stdin.end();
+    });
 }
 
 function setupMcpTools() {
@@ -315,6 +522,97 @@ Remember: The power of this system comes from combining multiple tools in sophis
         }
     });
 
+    mcp.registerTool("call_tool_chain_python", {
+        title: "Execute Python Code with Tool Access",
+        description: "Execute Python code with direct access to all registered tools as hierarchical functions (e.g., manual.tool(args)). " +
+            "Requires the 'code-mode' PyPI package (pip install code-mode). " +
+            "Note: only tools from the initial UTCP config are available; tools registered at runtime via register_manual are not visible to Python execution.",
+        inputSchema: {
+            code: z.string().describe(
+                "Python code to execute with access to all registered tools. " +
+                "Use manual.tool(args) syntax to call tools (synchronous, no await needed). " +
+                "Use 'return value' to return a result from the code."
+            ),
+            timeout: z.number().optional().default(30).describe(
+                "Optional timeout in seconds (default: 30). " +
+                "Note: unlike call_tool_chain (TypeScript), this value is in seconds not milliseconds."
+            ),
+            max_output_size: z.number().optional().default(200000).describe(
+                "Optional maximum output size in characters (default: 200000)."
+            ),
+        },
+    }, async (input) => {
+        await initializeUtcpClient();
+
+        if (!rawConfig) {
+            return { isError: true, content: [{ type: "text", text: "UTCP client not initialized." }] };
+        }
+
+        function truncateText(text: string): string {
+            if (text.length <= input.max_output_size) return text;
+            return text.slice(0, input.max_output_size) + "...\nmax_output_size exceeded";
+        }
+
+        try {
+            const response = await spawnPythonRunner({
+                code: input.code,
+                config: rawConfig,
+                root_dir: scriptDir,
+                timeout: input.timeout,
+            });
+
+            if (!response.success) {
+                return {
+                    isError: true,
+                    content: [{ type: "text", text: truncateText(JSON.stringify({ success: false, error: response.error, logs: response.logs })) }]
+                };
+            }
+
+            return {
+                content: [{ type: "text", text: truncateText(JSON.stringify({ success: true, result: response.result, logs: response.logs })) }]
+            };
+        } catch (e: any) {
+            return { isError: true, content: [{ type: "text", text: e.message }] };
+        }
+    });
+
+    mcp.registerTool("tools_info_python", {
+        title: "Get Tools Information with Python TypedDict Interface",
+        description: "Get complete information about a specified list of tools, including Python TypedDict interface definitions for use with call_tool_chain_python.",
+        inputSchema: {
+            tool_names: z.array(z.string()).describe("Names of the tools to get Python TypedDict interface definitions for."),
+        },
+    }, async (input) => {
+        const client = await initializeUtcpClient();
+        try {
+            const pythonInterfaces: string[] = [];
+            const infos: string[] = [];
+
+            for (const name of input.tool_names) {
+                const found = await findToolByName(client, name);
+                if (found) {
+                    pythonInterfaces.push(toolToPythonInterface(found.tool));
+                } else {
+                    infos.push(`# Tool '${name}' not found`);
+                }
+            }
+
+            if (pythonInterfaces.length === 0 && infos.length > 0) {
+                return { isError: true, content: [{ type: "text", text: infos.join('\n') }] };
+            }
+
+            const header = `from typing import TypedDict, Any, List, Dict, Optional, Union, Literal\n\n`;
+            let fullContent = header + pythonInterfaces.join('\n');
+            if (infos.length > 0) {
+                fullContent += '\n' + infos.join('\n');
+            }
+
+            return { content: [{ type: "text", text: fullContent }] };
+        } catch (e: any) {
+            return { isError: true, content: [{ type: "text", text: e.message }] };
+        }
+    });
+
 }
 
 /**
@@ -358,7 +656,6 @@ async function initializeUtcpClient(): Promise<CodeModeUtcpClient> {
     const packageDir = __dirname;
 
     let configPath: string;
-    let scriptDir: string;
     let isRemote = false;
 
     // Check if UTCP_CONFIG_FILE environment variable is set
@@ -392,7 +689,7 @@ async function initializeUtcpClient(): Promise<CodeModeUtcpClient> {
         }
     }
 
-    let rawConfig: any = {};
+    rawConfig = {};
     try {
         let configFileContent: string;
 
